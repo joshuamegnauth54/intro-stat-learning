@@ -1,0 +1,34 @@
+---
+title: "ISLR - Chapter 2"
+author: "Joshua Megnauth"
+output:
+  md_document:
+    variant: markdown_github
+---
+# Chapter 2 solutions
+## (code only)
+
+I'm skipping the labs because they're designed to test basic R knowledge. That's no fun in either language!
+
+See the Python version for explanations. I'm just porting the code over to R.
+
+### Question 7
+```{r question_7}
+library(tidyverse)
+
+# A tibble of the data from question 7.
+colors_df <- tibble(X1 = c(0, 2, 0, 0, -1, 1),
+                    X2 = c(3, 0, 1, 1, 0, 1),
+                    X3 = c(0, 0, 3, 2, 1, 1),
+                    Y = c("Red", "Red", "Red", "Green", "Green", "Red"))
+
+distances_df <-
+  colors_df %>%
+  select(X1, X2, X3) %>%
+  mutate(X1 = (X1 - 0)^2,
+         X2 = (X2 - 0)^2,
+         X3 = (X3 - 0)^2) %>%
+  rowSums() %>%
+  sqrt() %>%
+  bind_cols(colors_df %>% select(Y))
+```
