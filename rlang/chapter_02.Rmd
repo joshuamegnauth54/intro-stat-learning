@@ -3,12 +3,12 @@ title: "ISLR - Chapter 2"
 author: "Joshua Megnauth"
 output:
   md_document:
-    variant: markdown_github
+    variant: gfm
 ---
 # Chapter 2 solutions
 ## (code only)
 
-I'm skipping the labs because they're designed to test basic R knowledge. That's no fun in either language!
+Chapter 2's lab is an introduction to R. Do I really want to go through those exercises? Nope!
 
 See the Python version for explanations. I'm just porting the code over to R.
 
@@ -30,5 +30,11 @@ distances_df <-
          X3 = (X3 - 0)^2) %>%
   rowSums() %>%
   sqrt() %>%
-  bind_cols(colors_df %>% select(Y))
+  bind_cols(colors_df %>% select(Y)) %>%
+  rename(distance = `...1`)
+
+distances_df %>%
+  arrange(desc(distance)) %>%
+  slice_max(distance, n = 3) %>%
+  summarize(fct_count(Y, sort = TRUE, prop = TRUE))
 ```

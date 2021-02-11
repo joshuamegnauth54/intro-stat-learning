@@ -1,0 +1,168 @@
+---
+title: "Chapter 3 - Linear regression lab"
+author: "Joshua Megnauth"
+output:
+  md_document:
+    variant: gfm
+---
+# Introduction
+I prefer tidy R to the base R favored by the text. So I'll complete chapter 3's lab a bit differently than straightforwardly following the text. My code below is laxly annotated to note differences between my method and the lab's, but don't expect a long treatise on the tidy functions!
+
+Finally, rendering this Rmd produces "ugly" output because none of the tibbles or data.frames are wrapped in anything to pretty print them. I intended to use `kableExtra` but it would muddle the code with calls to **kbl()**.
+
+## Simple linear regression (3.6.2)
+
+```{r lstat_only, message=FALSE}
+library(tidyverse)
+library(broom)
+# library(kableExtra)
+
+boston <- read_csv("BostonHousing.csv")
+mod_lstat <- lm(medv ~ lstat, boston)
+```
+
+The **summary()** function returns a whole mess of useful information in a list such as the coefficients, residuals, F-statistic, et cetera. Tidy R's _broom_ library implements several functions, such as [glance()](https://generics.r-lib.org/reference/glance.html), which return a subset of the information from **summary()** as a tibble.
+
+```{r glance_lstat}
+glance(mod_lstat)
+```
+
+Next up the lab asks us to pull the coefficients from the model as well as confidence intervals. Broom's [tidy()](https://generics.r-lib.org/reference/tidy.html) function is a neat alternative to **coef()** and **confint()**.
+
+```{r tidy_lstat_model}
+tidy(mod_lstat, conf.int = TRUE)
+```
+
+### Confidence and prediction intervals
+
+Both the **predict()** and **augment()** functions are great for predictions and confidence intervals. The default interval is 0.95 for both.
+
+```{r augment_confint_lstat_model}
+lstat_testing <- tibble(lstat = c(5, 10, 15))
+augment(mod_lstat, newdata = lstat_testing, interval = "confidence")
+```
+
+And if we'd like a prediction interval instead of a confidence interval...
+
+```{r augment_predictint_lstat_model}
+augment(mod_lstat, newdata = lstat_testing, interval = "prediction")
+```
+
+Prediction intervals are wider than confidence intervals because they account for the uncertainty of estimating the population mean as well as the random variation present in the data. We expect 95% of our prediction intervals to include the next sampled data point.
+
+### Diagnostics and plots
+
+```{r graph_lstat_model}
+ggplot(boston, aes(lstat, medv)) +
+  geom_point(color = "blue", alpha = 0.5) +
+  geom_smooth(method = lm, se = FALSE, color = "red") +
+  labs(x = "% lower status of the population",
+       y = "Median home value ($1000)",
+       title = "Boston median home value vs. lower status") +
+  theme_minimal()
+```
+
+### Residual plots
+```{r lstat_model_residual}
+aug_mod_lstat <- augment(mod_lstat)
+
+ggplot(aug_mod_lstat, aes(.fitted, .resid)) +
+  geom_point(shape = 1, size = 2) +
+  geom_smooth(se = FALSE, color = "red") +
+  labs(x = "Fitted values",
+       y = "Residuals",
+       title = "Residuals vs. fitted for medv ~ lstat") +
+  theme_minimal()
+```
+
+Randomly distributed residuals are evidence of a linear relationship. We can clearly see that `medv` and `lstat` do **not** have a linear relationship.
+
+Plotting studentized residuals is the same process. This is a good candidate for a function!
+
+```{r lstat_model_rstudfitted, message=FALSE}
+ggplot(aug_mod_lstat, aes(.fitted, .std.resid)) +
+  geom_point(shape = 1, size = 2) +
+  geom_smooth(se = FALSE, color = "red") +
+  labs(x = "Fitted values",
+       y = "Studentized residuals",
+       title = "Studentized residuals vs. fitted values for medv ~ lstat") +
+  theme_minimal()
+```
+
+Finally, the leverage plot is also very similar thanks to **augment().**
+
+```{r lstat_model_lev, message=FALSE}
+ggplot(aug_mod_lstat, aes(.hat, (.resid - mean(.resid))/sd(.resid))) +
+  geom_point(shape = 1, size = 2) +
+  geom_smooth(se = FALSE, color = "red") +
+  labs(x = "Leverage",
+       y = "Standardized residuals",
+       title = "Residuals vs. leverage for medv ~ lstat") +
+  theme_minimal()
+```
+
+## Multiple linear regression (3.6.3)
+
+```{r multiregression_ex}
+mod_lstat_age <- lm(medv ~ lstat + age, boston)
+mod_all <- lm(medv ~ ., boston)
+
+tidy(mod_all)
+```
+
+The writers pull out statistics such as $R^2$ using the `$` operator on the list returned by **summary()**. We can use `$` with the tibble returned by **glance()** or use [pull()](https://dplyr.tidyverse.org/reference/pull.html). The **pull()** function looks prettier in pipes than `$`, and we can use either for **glance()**.
+
+```{r pull_sigma}
+glance(mod_all) %>%
+  pull(sigma)
+```
+For example, here's RSE!
+
+The `car` package has a useful function for variance inflation factor as mentioned in the text. The **vif()** function returns a named vector of doubles.
+
+```{r vif_all}
+car::vif(mod_all)
+```
+
+Several of the variables exhibit extreme multicollinearity such as `indus`, `nox`, `dis`, `rad`, and `tax`. I only listed the most egregious examples too; most of the variables are at least moderately collinear.
+
+Finally, we can run a regression that precludes specific variables by combining `.` and `-`.
+
+```{r mod_no_age}
+mod_no_age <- lm(medv ~ . - age, boston)
+```
+
+## Interaction terms (3.6.4)
+
+```{r mod_lstat_age_interaction}
+mod_int_lsage <- lm(medv ~ lstat * age, boston)
+tidy(mod_int_lsage)
+```
+
+## Non-linear transformations
+
+```{r mod_lstat2}
+mod_lstat_sq <- lm(medv ~ lstat + I(lstat^2), boston)
+tidy(mod_lstat_sq)
+```
+
+The model with the quadratic predictor seems to perform well. ANOVA allows us to quantify whether the RSS of the two nested models are significantly different.
+
+```{r anova_lstat2}
+tidy(anova(mod_lstat, mod_lstat_sq))
+```
+
+Our ANOVA test shows that the more complex model with the quadratic term performs better than the model with only `lstat`. We can add a range of higher order polynomial terms easily.
+
+```{r poly_lstat}
+mod_poly_lstat <- lm(medv ~ poly(lstat, 5), boston)
+tidy(mod_poly_lstat)
+```
+
+## Qualitative predictors (3.6.5)
+```{r carseats, message=FALSE}
+carseats <- read_csv("carseats.csv")
+mod_carseats_sales <- lm(Sales ~ . + Income*Advertising + Price*Age, carseats)
+tidy(mod_carseats_sales)
+```
+
