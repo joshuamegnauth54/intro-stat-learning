@@ -1,0 +1,343 @@
+---
+title: "Chapter 3 - Linear regression applied"
+author: "Joshua Megnauth"
+#output:
+ # md_document:
+  #  variant: gfm
+output:
+  html_document
+---
+
+# Question 8
+
+```{r quest_8, message=FALSE}
+library(tidyverse)
+library(corrr)
+library(broom)
+library(GGally)
+
+auto <-
+  read_csv("auto.csv") %>%
+  mutate(cylinders = as_factor(cylinders),
+         year = as_factor(year),
+         origin = fct_recode(as_factor(origin),
+                             "American" = "1",
+                             "European" = "2",
+                             "Japanese" = "3"))
+
+
+mod_mpg_horse <- lm(mpg ~ horsepower, auto)
+tidy(mod_mpg_horse)
+```
+
+ISLR doesn't expect readers to recode `cylinders`, `year`, and `origin`, but I feel gross adding `origin` into a regression as a numerical variable. Years and cylinders are both categoricals as well. 
+
+## 8a.1
+
+P-values measure the probability of observing a test statistic more extreme than what we currently observed given the null hypothesis. The null hypothesis in the case of the model is that the coefficient for `horsepower` is zero. P-values don't account for the strength of the relationship nor do they prove any hypotheses.
+
+The p-value for `horsepower` is lower than the standard $\alpha = 0.05$ which indicates a relationship with respect to these data and the model above.
+
+## 8a.2
+```{r quest_8_2}
+fit_mpg_horse <- glance(mod_mpg_horse)
+fit_mpg_horse
+```
+
+Residual standard error (RSE) measures how much on average our model deviates from the true regression line in terms of `y`. The `horsepower` model makes errors of about `4.91` in terms of `mpg`'s units. Percent error is calculated by dividing RSE by the mean of our response, `mpg`. The response units may be difficult to interpret. Ironically, I know next to nothing about cars so I personally don't know if an error of `4.91` miles per gallon is acceptable or not.
+
+```{r quest_8_2_rse_perc}
+fit_mpg_horse %>%
+  summarize(RSE = sigma,
+            `Percent error` = sigma/mean(auto$mpg) * 100)
+```
+
+On the other hand, 20% is a much more interpretable number as it doesn't depend on units. $R^2$, a [flawed statistic](https://data.library.virginia.edu/is-r-squared-useless/) measuring the amount of variance explained by the model, is at about 60%. Like RSE and percent error, $R^2$ is better interpreted with domain knowledge. With that said, 60% seems low for the auto data which is sensible since we're only including one variable which may not even have a linear relationship with our response.
+
+## 8a.3
+The relationship between `mpg` and `horsepower` is negative. Each unit increase in `horsepower` is associated with a `~0.158` decrease in `mpg` from the constant/intercept of `~39.94`.
+
+## 8a.4
+```{r quest_8_4_ci, warning=FALSE}
+X_hp_98 <- tibble(horsepower = 98)
+augment(mod_mpg_horse, newdata = X_hp_98, interval = "confidence")
+augment(mod_mpg_horse, newdata = X_hp_98, interval = "prediction")
+```
+
+## 8b
+```{r quest_8b, message=FALSE}
+ggplot(auto, aes(horsepower, mpg)) +
+  geom_point() +
+  geom_smooth(method = lm, se = FALSE) +
+  xlab("Horsepower") +
+  ylab("Miles Per Gallon (MPG)") +
+  ggtitle("MPG vs. horsepower") +
+  theme_minimal()
+```
+
+## 8c
+```{r quest_8c, message=FALSE}
+lazy_resid <- function(mod, title_formula) {
+  augment(mod) %>%
+    ggplot(aes(.fitted, .resid)) +
+    geom_point(color = "blue", shape = 1, size = 2) +
+    geom_smooth(color = "red", se = FALSE) +
+    labs(x = "Fitted",
+         y = "Residuals") +
+    ggtitle(paste("Residual plot for", title_formula)) +
+    theme_minimal()
+}
+
+lazy_scale_loc <- function(mod, title_formula) {
+  augment(mod) %>%
+    ggplot(aes(.fitted, sqrt(abs(.std.resid)))) +
+    geom_point(color = "blue", shape = 1, size = 2, alpha = 0.65) +
+    geom_smooth(color = "red", se = FALSE) +
+    labs(x = "Fitted",
+         y = "sqrt(|Standardized residuals|)") +
+    ggtitle(paste("Scale-location plot for", title_formula)) +
+    theme_minimal()
+}
+
+lazy_leverage <- function(mod, title_formula) {
+  augment(mod) %>%
+    mutate(Influential = if_else(.cooksd >= 4/n(), "Influential", "Normal")) %>%
+    ggplot(aes(.hat, .std.resid)) +
+    geom_point(aes(color = Influential), shape = 1, size = 2, alpha = 0.65) +
+    geom_smooth(color = "red", se = FALSE) +
+    scale_color_manual(values = c("darkred", "dodgerblue4")) +
+    labs(x = "Leverage (hat matrix)",
+         y = "Standardized residuals") +
+    ggtitle(paste("Leverage plot for", title_formula)) +
+    theme_minimal()
+}
+
+lazy_resid(mod_mpg_horse, "medv ~ lstat")
+lazy_scale_loc(mod_mpg_horse, "medv ~ lstat")
+lazy_leverage(mod_mpg_horse, "medv ~ lstat")
+```
+
+The relationship between `mpg` and `horsepower` is non-linear judging by the scatter plot. A residual plot of the model shows the same trend as the residuals aren't randomly distributed. In terms of the scale-location plot, the residuals are heteroscedastic rather than having constant variance.
+
+In short, the model above isn't great.
+
+# Question 9
+## 9a
+
+```{r quest_9a, message=FALSE, warning=FALSE}
+auto %>%
+  select(-name) %>%
+  ggpairs()
+```
+
+## 9b
+```{r quest_9b, message=FALSE}
+auto %>%
+  select(where(is.numeric)) %>%
+  correlate() %>%
+  rearrange() %>%
+  shave()
+```
+
+Ahh, (almost) everything is correlated!
+
+## 9c
+```{r quest9c}
+mod_auto_all <- lm(mpg ~ . - name, auto)
+tidy(mod_auto_all)
+```
+
+### 9c.1 and 2
+Several variables have a non-zero effect on the response in respect to all other variables but _ignoring_ multicollinearity. The model's intercept is a vehicle with three engine cylinders made in the United States (`origin`) in 1970. The overall F-test is statistically significant which indicates that at least one of the variables includes has an effect on the response.
+
+All of the levels of `cylinders` are statistically significant. The numerical variable `horsepower` and `weight`, which are highly correlated, also have non-zero effects. Of course, those effects are unstable due to correlation. Interestingly, `year` is significant past 1977 and all three `origin` levels are significant as well.
+
+```{r quest9c_rse}
+glance(mod_auto_all) %>%
+  mutate(percent_error = sigma/mean(auto$mpg)) %>%
+  select(adj.r.squared, sigma, percent_error)
+```
+
+The all variables model improved percent error but is still flawed due to multicollinearity.
+
+### 9c.3
+
+I converted `year` from a number to a categorical earlier because years are essentially factors. The coefficients refer to a constant that shifts the intercept if the given observation is of that year. For example, a vehicle released in 1982 would shift the intercept up about 7.84 units.
+
+I quickly reran the model without type conversions (not shown here) out of curiosity. The `year` coefficient is 0.751 which means that each increase in year is associated with a 0.751 MPG increase. Years are raw numbers in this case and start at 70 in the data set. The intercept is impossible at -17.2 which is likely due in part to `year`.
+
+### 9d
+```{r quest9d, message=FALSE}
+lazy_resid(mod_auto_all, "mpg ~ .")
+lazy_scale_loc(mod_auto_all, "mpg ~ .")
+lazy_leverage(mod_auto_all, "mpg ~ .")
+```
+
+Using all of the variables leads to better diagnostics than simply `mpg` versus `horsepower`. However, non-linearity is evident from the residual plot. Residuals look reasonably randomly distributed via scale-location which is evidence of homoskedasticity.
+
+```{r quest9d_vif}
+car::vif(mod_auto_all)
+
+aug_auto_all <- augment(mod_auto_all)
+aug_auto_all %>%
+  mutate(row = row_number(),
+         z_score = (.hat - mean(.hat))/sd(.hat)) %>%
+  select(row, .hat, z_score) %>%
+  slice_max(n = 10, order_by = .hat)
+```
+
+Leverage is another matter. Several leverage values are very far from the cluster at the left of the plot. Some observations have a leverage that is over five standard deviations away from the mean!
+
+### 9e and f
+
+```{r quest9e_n_f}
+mod_auto_flex <- lm(log(mpg) ~ (weight*horsepower) + origin + cylinders + acceleration + year, auto)
+tidy(mod_auto_flex)
+glance(mod_auto_flex)
+```
+
+I combined questions _9e_ and _9f_.
+
+`Weight` and `horsepower` are slightly right skewed while `acceleration` isn't skewed at all. I took the log of `horsepower` and `weight` in order to reduce heteroskedasticity, but taking the natural log of the response worked best.
+
+I added an interaction between `weight` and `horsepower` since the two variables are not independent. Holding weight constant while increasing or decreasing horsepower doesn't make sense for the era in the data set (this may be true now, but I don't know cars and don't want to extrapolate!). `Displacement` is explained by `horsepower` and `weight` so I opted to not include it. Either way, the interaction and natural log increase model flexibility.
+
+Finally, I converted `year` and `origin` to factors earlier which provide extra explantory power as the state of origin as well as the year of release of a vehicle contribute important information.
+
+Despite the improved model fit, residuals are still heteroskedastic according to the Breusch–Pagan test (the null hypothesis is homoskedasticity).
+
+```{r quest9e_bptest}
+lmtest::bptest(mod_auto_flex) %>%
+  tidy()
+```
+
+# Question 10
+## 10a
+```{r load_carseats, message=FALSE}
+carseats <-
+  read_csv("carseats.csv") %>%
+  mutate(Urban = as_factor(Urban),
+         US = as_factor(US))
+
+mod_car_urbanus <- lm(Sales ~ Price + Urban + US, carseats)
+```
+
+## 10b
+```{r quest10b}
+tidy(mod_car_urbanus, conf.int = TRUE)
+```
+
+The model's base case is for sales from a U.S. store in an urban location. The intercept is estimated as 14.2 sales (in thousands) when `Price` is 0. Each unit (n.b. I don't `Price`'s units) increase in `Price` is associated with about 0.0545 lower sales from the base case.
+
+If a store is located in a rural area (`Urban` == No), the model shifts the constant by 0.0219. `Urban`'s standard error is larger than the estimate itself (0.272 standard error for a 0.0219 coefficient), so we can't rely on the effect as we're not sure if it's even positive or negative!
+
+A store located outside of the United States is associated with an average decrease in 1.2 sales units.
+
+## 10c
+$\hat{Sales} = \beta_0 + \beta_1*Prices + \beta_2*Urban + \beta_3*US$
+
+Or:
+
+$\hat{Sales} = 14.2 - 0.0545Prices + 0.0219Urban - 1.20US$
+
+Where:
+
+$Urban\, or\, US =\\ \{Yes = 0\\No = 1\}$
+
+Yes is **0** because our base case is "Yes". We can relevel the categorical variables using [forcats](https://forcats.tidyverse.org/), but I left it as is in case anyone is reading these answers.
+
+## 10d
+`Urban`'s p-value is far above the standard $\alpha = 0.05$ which means we accept the null hypothesis $H_0: \beta_{Urban} = 0$.
+
+## 10e
+```{r quest10e}
+mod_car_small <- lm(Sales ~ Price + US, carseats)
+glance(mod_car_urbanus)
+glance(mod_car_small)
+anova(mod_car_urbanus, mod_car_small)
+```
+
+## 10f
+
+Both models have at least one predictor with an effect on our response. Adjusted $R^2$ is slightly higher for the smaller model but essentially the same between the two. RSE is exactly the same for both models.
+
+The smaller model is a better fit because the model is less complex while performing the same as the larger model. `Urban`'s effect is no different than random noise according to the high p-value.
+
+## 10g
+```{r quest10f}
+tidy(mod_car_small, conf.int = TRUE)
+```
+
+## 10h
+```{r quest10h_lev}
+augment(mod_car_small) %>%
+  filter(.cooksd >= 4/n()) %>%
+  arrange(desc(.cooksd, .hat))
+```
+
+Leverage measures the distance between X values; high leverage means that values are strange compared to other Xes. Cook's distance is a metric relating to influence. Analysts may interpret the two statistics differently to determine high leverage points, so I used the criterion where Cook's Ds higher than `4/N` are considered influential points with high leverage.
+
+```{r quest10h_outlier}
+sales_iqr <- IQR(carseats$Sales) * 1.5
+sales_lower <- quantile(carseats$Sales, .25) - sales_iqr
+sales_upper <- quantile(carseats$Sales, .75) + sales_iqr
+
+carseats %>%
+  select(Sales) %>%
+  filter((Sales <= sales_lower) | (Sales >= sales_upper))
+```
+
+At least two values are outliers via the `1.5 * IQR` threshold.
+
+# Question 11
+## 11a
+```{r quest11}
+set.seed(1)
+qeleven <- tibble(x = rnorm(100),
+                  y = 2 * x + rnorm(100))
+
+mod_eleven_yx <- lm(y ~ x + 0, qeleven)
+tidy(mod_eleven_yx, conf.int = TRUE)
+glance(mod_eleven_yx)
+```
+
+Each unit increase in `x` is associated with a corresponding increase of `1.99` in `y`. The coefficient is expected to vary by $\pm0.106$ through resamples.
+
+## 11b
+```{r quest11b}
+mod_eleven_xy <- lm(x ~ y + 0, qeleven)
+tidy(mod_eleven_xy, conf.int = TRUE)
+glance(mod_eleven_xy)
+```
+
+Regressing `x` onto `y` changes the estimate but not the t-statistic. Unit increases in `y` are associated with an increase of `0.391` in `x` with a confidence interval of `0.350` to `0.433`.
+
+## 11c
+
+Both models have the same t-statistic (and p-value) for the respective coefficient.
+
+## 11d
+
+To do.
+
+## 11e
+
+To do. (Though you can see that flipping `x` and `y` doesn't change anything because of commutativity.)
+
+## 11f
+
+```{r quest_11f}
+lm(y ~ x, qeleven) %>%
+  tidy() %>%
+  full_join(tidy(lm(x ~ y, qeleven))) %>%
+  filter(term %in% c("x", "y")) %>%
+  select(term, statistic, p.value)
+```
+
+# 12
+## 12a
+$\hat{\beta_x} = \frac{\sum_{i=1}^{n} x_iy_i}{\sum_{j=1}^n x_{j}^2}$
+
+$\hat{\beta_y} = \frac{\sum_{i=1}^{n} y_ix_i}{\sum_{j=1}^n y_{j}^2}$
+
+Therefore, $\hat{\beta_x} = \hat{\beta_y}$ when the denominators are equal.
